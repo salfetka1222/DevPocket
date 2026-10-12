@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from telegram import (
     InlineKeyboardButton,
@@ -26,13 +27,20 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from database import (
+    init_db,
+    list_projects,
+    get_project,
+    create_project,
+    update_project,
+    delete_project,
+)
+
 
 # ---------- Configuration ----------
 
 BASE_DIR = Path(__file__).resolve().parent
 WEBAPP_DIR = BASE_DIR / "webapp"
-
-# Create the folder now; we will add the Mini App files later.
 WEBAPP_DIR.mkdir(parents=True, exist_ok=True)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -46,14 +54,26 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
-
 logger = logging.getLogger("devpocket")
-
-
-# ---------- Telegram bot ----------
 
 telegram_app = None
 
+
+# ---------- Request models ----------
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    language: str = "python"
+    content: str = Field(default="", max_length=100000)
+
+
+class ProjectUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    language: str
+    content: str = Field(max_length=100000)
+
+
+# ---------- Telegram bot ----------
 
 async def start_command(
     update: Update,
@@ -63,35 +83,33 @@ async def start_command(
         return
 
     if MINI_APP_URL.startswith("https://"):
-        keyboard = InlineKeyboardMarkup(
+        keyboard = InlineKeyboardMarkup([
             [
-                [
-                    InlineKeyboardButton(
-                        "🚀 Открыть DevPocket",
-                        web_app=WebAppInfo(url=MINI_APP_URL),
-                    )
-                ]
+                InlineKeyboardButton(
+                    "🚀 Открыть DevPocket",
+                    web_app=WebAppInfo(url=MINI_APP_URL),
+                )
             ]
-        )
+        ])
 
         await update.effective_message.reply_text(
             "👋 Добро пожаловать в DevPocket!\n\n"
-            "Твоя среда разработчика внутри Telegram.\n"
+            "Твоя среда разработки внутри Telegram.\n"
             "Открой приложение кнопкой ниже.",
             reply_markup=keyboard,
         )
     else:
         await update.effective_message.reply_text(
             "👋 Добро пожаловать в DevPocket!\n\n"
-            "Бот запущен, но Mini App ещё не подключён.\n"
-            "Сначала развернём сайт и настроим MINI_APP_URL."
+            "Mini App пока не подключён. "
+            "Проверь настройку MINI_APP_URL."
         )
 
 
-# ---------- Telegram Mini App verification ----------
+# ---------- Telegram authentication ----------
 
 def verify_init_data(init_data: str) -> dict:
-    """Verify Telegram Web App initData using the bot token."""
+    """Verify Telegram Mini App initData using the bot token."""
 
     if not BOT_TOKEN:
         raise HTTPException(
@@ -112,7 +130,6 @@ def verify_init_data(init_data: str) -> dict:
             strict_parsing=True,
         )
 
-        # Duplicate fields are rejected to avoid ambiguous validation.
         if len(dict(pairs)) != len(pairs):
             raise ValueError("Duplicate fields")
 
@@ -125,16 +142,13 @@ def verify_init_data(init_data: str) -> dict:
         auth_date = int(data.get("auth_date", "0"))
         now = int(time.time())
 
-        if auth_date <= 0:
-            raise ValueError("Missing auth_date")
-
-        if auth_date > now + 60:
-            raise ValueError("Future auth_date")
+        if auth_date <= 0 or auth_date > now + 60:
+            raise ValueError("Invalid auth_date")
 
         if now - auth_date > MAX_INITDATA_AGE:
             raise ValueError("Expired initData")
 
-        data_check_string = "\n".join(
+        check_string = "\n".join(
             f"{key}={value}"
             for key, value in sorted(data.items())
         )
@@ -147,7 +161,7 @@ def verify_init_data(init_data: str) -> dict:
 
         expected_hash = hmac.new(
             secret_key,
-            data_check_string.encode("utf-8"),
+            check_string.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
 
@@ -163,9 +177,8 @@ def verify_init_data(init_data: str) -> dict:
         if not isinstance(user, dict) or not user.get("id"):
             raise ValueError("Invalid user")
 
-        # Return only fields needed by the application.
         return {
-            "id": user["id"],
+            "id": int(user["id"]),
             "first_name": user.get("first_name", ""),
             "username": user.get("username"),
             "language_code": user.get("language_code"),
@@ -173,11 +186,21 @@ def verify_init_data(init_data: str) -> dict:
 
     except HTTPException:
         raise
-    except (ValueError, TypeError, json.JSONDecodeError):
+    except (ValueError, TypeError, KeyError):
         raise HTTPException(
             status_code=401,
             detail="Telegram verification failed",
         )
+
+
+async def authenticated_user(request: Request) -> dict:
+    """
+    Protected API authentication.
+    The frontend sends Telegram initData in a request header.
+    """
+
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    return verify_init_data(init_data)
 
 
 # ---------- Application lifecycle ----------
@@ -186,16 +209,11 @@ def verify_init_data(init_data: str) -> dict:
 async def lifespan(app: FastAPI):
     global telegram_app
 
-    if BOT_TOKEN:
-        telegram_app = (
-            Application.builder()
-            .token(BOT_TOKEN)
-            .build()
-        )
+    init_db()
 
-        telegram_app.add_handler(
-            CommandHandler("start", start_command)
-        )
+    if BOT_TOKEN:
+        telegram_app = Application.builder().token(BOT_TOKEN).build()
+        telegram_app.add_handler(CommandHandler("start", start_command))
 
         await telegram_app.initialize()
         await telegram_app.start()
@@ -224,7 +242,6 @@ async def lifespan(app: FastAPI):
                 await telegram_app.stop()
 
             await telegram_app.shutdown()
-
             logger.info("Telegram bot stopped")
 
 
@@ -233,7 +250,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DevPocket API",
     description="Developer workspace inside Telegram",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -251,13 +268,10 @@ async def home():
     if index_file.is_file():
         return FileResponse(index_file)
 
-    return JSONResponse(
-        {
-            "name": "DevPocket",
-            "status": "starting",
-            "message": "Mini App interface will be added next.",
-        }
-    )
+    return JSONResponse({
+        "name": "DevPocket",
+        "status": "starting",
+    })
 
 
 @app.get("/health")
@@ -265,7 +279,7 @@ async def health():
     return {
         "ok": True,
         "service": "DevPocket",
-        "version": "0.1.0",
+        "version": "0.2.0",
     }
 
 
@@ -276,36 +290,115 @@ async def api_status():
         "api": "online",
         "bot_configured": bool(BOT_TOKEN),
         "mini_app_configured": MINI_APP_URL.startswith("https://"),
+        "projects_api": "enabled",
     }
 
 
-@app.post("/api/me")
+@app.get("/api/me")
 async def get_current_user(request: Request):
-    try:
-        body = await request.json()
-    except (ValueError, json.JSONDecodeError):
-        raise HTTPException(
-            status_code=400,
-            detail="Request body must be valid JSON",
-        )
+    user = await authenticated_user(request)
+    return {"ok": True, "user": user}
 
-    if not isinstance(body, dict):
-        raise HTTPException(
-            status_code=400,
-            detail="Request body must be a JSON object",
-        )
 
-    init_data = body.get("initData")
+# ---------- Projects API ----------
 
-    if not isinstance(init_data, str):
-        raise HTTPException(
-            status_code=400,
-            detail="initData is required",
-        )
-
-    user = verify_init_data(init_data)
+@app.get("/api/projects")
+async def api_list_projects(request: Request):
+    user = await authenticated_user(request)
+    projects = list_projects(user["id"])
 
     return {
         "ok": True,
-        "user": user,
+        "projects": projects,
     }
+
+
+@app.post("/api/projects", status_code=201)
+async def api_create_project(
+    payload: ProjectCreate,
+    request: Request,
+):
+    user = await authenticated_user(request)
+
+    try:
+        project = create_project(
+            owner_id=user["id"],
+            name=payload.name,
+            language=payload.language,
+            content=payload.content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "ok": True,
+        "project": project,
+    }
+
+
+@app.get("/api/projects/{project_id}")
+async def api_get_project(
+    project_id: int,
+    request: Request,
+):
+    user = await authenticated_user(request)
+    project = get_project(user["id"], project_id)
+
+    if project is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    return {
+        "ok": True,
+        "project": project,
+    }
+
+
+@app.put("/api/projects/{project_id}")
+async def api_update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    request: Request,
+):
+    user = await authenticated_user(request)
+
+    try:
+        project = update_project(
+            owner_id=user["id"],
+            project_id=project_id,
+            name=payload.name,
+            language=payload.language,
+            content=payload.content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if project is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    return {
+        "ok": True,
+        "project": project,
+    }
+
+
+@app.delete("/api/projects/{project_id}")
+async def api_delete_project(
+    project_id: int,
+    request: Request,
+):
+    user = await authenticated_user(request)
+    deleted = delete_project(user["id"], project_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Project not found",
+        )
+
+    return {"ok": True, "deleted": True}
