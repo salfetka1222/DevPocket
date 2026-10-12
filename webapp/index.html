@@ -1,0 +1,377 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0b0d12">
+  <title>DevPocket — Developer Workspace</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --panel: #121620;
+      --panel2: #191f2b;
+      --border: #272e3b;
+      --text: #f2f4f8;
+      --muted: #929bad;
+      --accent: #8b7cff;
+      --green: #5fe0a0;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+
+    button, textarea { font: inherit; }
+
+    .app {
+      width: min(100%, 760px);
+      margin: 0 auto;
+      padding: 22px 16px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
+
+    .logo {
+      width: 43px;
+      height: 43px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #a99cff, #6554e8);
+      color: white;
+      font-size: 22px;
+      font-weight: 800;
+    }
+
+    h1, h2, p { margin: 0; }
+
+    h1 { font-size: 19px; letter-spacing: -.5px; }
+    .subtitle { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    .status {
+      border: 1px solid #24553f;
+      background: #10251d;
+      color: var(--green);
+      border-radius: 20px;
+      padding: 7px 10px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .hero {
+      padding: 23px;
+      border: 1px solid #383254;
+      border-radius: 23px;
+      background:
+        radial-gradient(ellipse at top right, #393066 0%, transparent 55%),
+        linear-gradient(140deg, #19172a, #121620 72%);
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      color: #b6aaff;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 13px;
+    }
+
+    .hero h2 { font-size: 27px; line-height: 1.15; margin-bottom: 10px; }
+    .hero p { color: #b5b7c7; font-size: 14px; line-height: 1.6; }
+
+    .primary {
+      margin-top: 20px;
+      width: 100%;
+      border: 0;
+      border-radius: 13px;
+      padding: 14px;
+      background: var(--accent);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 27px 0 13px;
+    }
+
+    .section-head h2 { font-size: 16px; }
+    .muted { color: var(--muted); font-size: 12px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 17px;
+      padding: 16px;
+      min-width: 0;
+    }
+
+    .card-icon { font-size: 23px; margin-bottom: 13px; }
+    .card h3 { font-size: 14px; margin-bottom: 7px; }
+    .card p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    .project {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .project-symbol {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      flex-shrink: 0;
+      border-radius: 12px;
+      background: var(--panel2);
+      font-size: 19px;
+    }
+
+    .project-info { flex: 1; min-width: 0; }
+    .project-info h3 { font-size: 13px; margin-bottom: 5px; }
+    .project-info p { color: var(--muted); font-size: 11px; }
+
+    .tag {
+      border-radius: 7px;
+      background: #20283a;
+      color: #b5c5ff;
+      padding: 5px 7px;
+      font-size: 10px;
+    }
+
+    .editor {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      overflow: hidden;
+      background: #0e1118;
+    }
+
+    .editor-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 12px;
+    }
+
+    textarea {
+      display: block;
+      width: 100%;
+      min-height: 180px;
+      resize: vertical;
+      padding: 15px;
+      background: transparent;
+      color: #d7dcf0;
+      border: 0;
+      outline: none;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      tab-size: 4;
+    }
+
+    .console {
+      background: #080a0f;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 15px;
+      margin-top: 10px;
+      font: 12px/1.8 ui-monospace, SFMono-Regular, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .console-title { color: var(--muted); margin-bottom: 7px; }
+    .console-line { color: var(--green); }
+
+    .footer {
+      text-align: center;
+      margin-top: 30px;
+      color: #697184;
+      font-size: 11px;
+      line-height: 1.8;
+    }
+
+    @media (max-width: 360px) {
+      .hero { padding: 18px; }
+      .hero h2 { font-size: 24px; }
+      .status { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">D</div>
+        <div>
+          <h1>DevPocket</h1>
+          <p class="subtitle">Developer workspace</p>
+        </div>
+      </div>
+      <div class="status">● API UI</div>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow">Your workspace</div>
+      <h2>Создавай.<br>Разрабатывай.<br>Запускай.</h2>
+      <p>Твоя среда разработки прямо в Telegram. Проекты и инструменты — в одном месте.</p>
+      <button class="primary" onclick="openEditor()">＋ Открыть редактор</button>
+    </section>
+
+    <div class="section-head">
+      <h2>Инструменты</h2>
+      <span class="muted">DevKit</span>
+    </div>
+
+    <section class="grid">
+      <article class="card" onclick="openEditor()" role="button" tabindex="0">
+        <div class="card-icon">⌨️</div>
+        <h3>Code Editor</h3>
+        <p>Пиши и редактируй исходный код.</p>
+      </article>
+      <article class="card" onclick="showConsole()" role="button" tabindex="0">
+        <div class="card-icon">›_</div>
+        <h3>Console</h3>
+        <p>Консоль и вывод сообщений приложения.</p>
+      </article>
+      <article class="card">
+        <div class="card-icon">📁</div>
+        <h3>Projects</h3>
+        <p>Рабочее пространство для будущих проектов.</p>
+      </article>
+      <article class="card">
+        <div class="card-icon">🔗</div>
+        <h3>GitHub</h3>
+        <p>Подключение репозиториев добавим позже.</p>
+      </article>
+    </section>
+
+    <div class="section-head">
+      <h2>Мои проекты</h2>
+      <span class="muted">MVP</span>
+    </div>
+
+    <section class="card">
+      <div class="project">
+        <div class="project-symbol">🐍</div>
+        <div class="project-info">
+          <h3>hello-world</h3>
+          <p>Python · Демонстрационный проект</p>
+        </div>
+        <span class="tag">Demo</span>
+      </div>
+      <div class="project">
+        <div class="project-symbol">🌐</div>
+        <div class="project-info">
+          <h3>web-workspace</h3>
+          <p>HTML · Интерфейс DevPocket</p>
+        </div>
+        <span class="tag">Local</span>
+      </div>
+    </section>
+
+    <div class="section-head" id="editor">
+      <h2>Code Editor</h2>
+      <span class="muted">Python</span>
+    </div>
+
+    <section class="editor">
+      <div class="editor-top">
+        <span>hello.py</span>
+        <span class="muted">Draft</span>
+      </div>
+      <textarea id="code" spellcheck="false">def main():
+    message = "Hello from DevPocket!"
+    print(message)
+
+if __name__ == "__main__":
+    main()</textarea>
+    </section>
+
+    <button class="primary" onclick="showConsole()">Проверить редактор</button>
+
+    <div class="section-head" id="console">
+      <h2>Console</h2>
+      <span class="muted">Preview</span>
+    </div>
+
+    <section class="console">
+      <div class="console-title">devpocket://console</div>
+      <div class="console-line" id="console-output">$ Интерфейс загружен.</div>
+      <div id="console-detail">Подготовка рабочего пространства завершена.</div>
+    </section>
+
+    <footer class="footer">
+      DevPocket · Early Preview<br>
+      Безопасная разработка начинается здесь.
+    </footer>
+  </main>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    function openEditor() {
+      document.getElementById("editor").scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+      document.getElementById("code").focus();
+    }
+
+    function showConsole() {
+      const code = document.getElementById("code").value;
+      document.getElementById("console").scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+
+      document.getElementById("console-output").textContent =
+        "$ Редактор отвечает.";
+
+      document.getElementById("console-detail").textContent =
+        "Символов в черновике: " + code.length +
+        ". Выполнение Python пока не подключено.";
+    }
+  </script>
+</body>
+</html>
