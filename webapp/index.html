@@ -296,8 +296,88 @@
       Твои проекты — твой код.
     </footer>
   </main>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
 
-  <script>
+<style>
+  .CodeMirror {
+    height: 300px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.65;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+
+  .CodeMirror-gutters {
+    border-right: 1px solid var(--border);
+  }
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+
+<script>
+(() => {
+  const textarea = document.getElementById("code");
+  const language = document.getElementById("language");
+
+  if (!textarea || !language || !window.CodeMirror) {
+    console.error("CodeMirror не загрузился.");
+    return;
+  }
+
+  const modes = {
+    python: "python",
+    javascript: "javascript",
+    typescript: "text/typescript",
+    html: "htmlmixed",
+    css: "css",
+    json: { name: "javascript", json: true },
+    text: "text/plain"
+  };
+
+  const editor = CodeMirror.fromTextArea(textarea, {
+    mode: modes[language.value] || "python",
+    theme: "material-darker",
+    lineNumbers: true,
+    indentUnit: 4,
+    tabSize: 4,
+    indentWithTabs: false,
+    lineWrapping: true,
+    matchBrackets: true,
+    autofocus: false
+  });
+
+  // Сохраняем совместимость с существующим DevPocket
+  // и runner.js: чтение и запись textarea.value
+  // теперь автоматически используют редактор.
+  Object.defineProperty(textarea, "value", {
+    configurable: true,
+    get() {
+      return editor.getValue();
+    },
+    set(value) {
+      editor.setValue(String(value ?? ""));
+    }
+  });
+
+  language.addEventListener("change", () => {
+    editor.setOption(
+      "mode",
+      modes[language.value] || "text/plain"
+    );
+    editor.refresh();
+  });
+
+  window.devPocketEditor = editor;
+  console.log("DevPocket: подсветка синтаксиса включена.");
+})();
+  </script>
     const tg = window.Telegram?.WebApp;
 
     if (tg) {
