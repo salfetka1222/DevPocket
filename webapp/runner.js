@@ -1,242 +1,320 @@
 (() => {
-const codeEl = document.getElementById("code");
-const languageEl = document.getElementById("language");
-const actions = document.querySelector(".actions");
+  "use strict";
 
-if (!codeEl || !languageEl || !actions) return;
+  const codeEl = document.getElementById("code");
+  const languageEl = document.getElementById("language");
+  const actions = document.querySelector(".actions");
 
-const style = document.createElement("style");
-style.textContent = ".runner-panel { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: #0c0f16; } .runner-buttons { display: grid; grid-template-columns: 1fr auto; gap: 8px; } .runner-output { min-height: 65px; max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: #080a0f; color: var(--green); font: 12px/1.6 monospace; }";
-document.head.appendChild(style);
+  if (!codeEl || !languageEl || !actions) {
+    console.error("DevPocket Runner: элементы редактора не найдены.");
+    return;
+  }
 
-const panel = document.createElement("section");
-panel.className = "runner-panel";
-panel.innerHTML = "<h2>▶ Запуск Python</h2> <div class="runner-buttons"> <button id="runner-start">▶ Запустить</button> <button id="runner-stop" class="secondary" disabled>■ Стоп</button> </div> <pre id="runner-output" class="runner-output">Результат появится здесь.</pre> <p class="notice" style="margin-top:8px"> Код выполняется в браузере, не на сервере DevPocket. Первый запуск может занять время на загрузку Python. Не запускай незнакомый код. </p>";
-actions.insertAdjacentElement("afterend", panel);
+  // Не создаём панель повторно.
+  if (document.getElementById("runner-panel")) return;
 
-const startBtn = document.getElementById("runner-start");
-const stopBtn = document.getElementById("runner-stop");
-const output = document.getElementById("runner-output");
+  const style = document.createElement("style");
+  style.textContent = `
+    .runner-panel {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #0c0f16;
+    }
 
-let worker = null;
-let workerUrl = null;
-let timer = null;
-let outputText = "";
-let running = false;
+    .runner-buttons {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
 
-const workerSource = `
-let pyodide = null;
-let outputLength = 0;
+    .runner-output {
+      min-height: 65px;
+      max-height: 240px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 10px 0 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: #080a0f;
+      color: var(--green);
+      font: 12px/1.6 monospace;
+    }
+  `;
+  document.head.appendChild(style);
 
-function sendOutput(text, isError) {
-  const remaining = 12000 - outputLength;
-  if (remaining <= 0) return;
+  const panel = document.createElement("section");
+  panel.id = "runner-panel";
+  panel.className = "runner-panel";
 
-  const part = String(text).slice(0, remaining);
-  outputLength += part.length;
+  panel.innerHTML = `
+    <h2>▶ Запуск Python</h2>
 
-  self.postMessage({
-    type: "output",
-    text: part,
-    isError: !!isError
-  });
-}
+    <div class="runner-buttons">
+      <button id="runner-start" type="button">
+        ▶ Запустить
+      </button>
 
-self.onmessage = async function(event) {
-  if (!event.data || event.data.type !== "run") return;
+      <button
+        id="runner-stop"
+        class="secondary"
+        type="button"
+        disabled
+      >
+        ■ Стоп
+      </button>
+    </div>
 
-  outputLength = 0;
+    <pre id="runner-output" class="runner-output">Готов к запуску.</pre>
 
-  try {
-    if (!pyodide) {
-      self.postMessage({ type: "loading" });
+    <p class="notice" style="margin-top:8px">
+      Python выполняется в браузере, а не на сервере DevPocket.
+      При первом запуске потребуется загрузить Python-среду.
+      Не запускай незнакомый код.
+    </p>
+  `;
 
-      importScripts(
-        "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"
-      );
+  actions.insertAdjacentElement("afterend", panel);
 
-      pyodide = await loadPyodide({
-        indexURL:
-          "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"
+  const startBtn = document.getElementById("runner-start");
+  const stopBtn = document.getElementById("runner-stop");
+  const output = document.getElementById("runner-output");
+
+  let worker = null;
+  let workerUrl = null;
+  let timer = null;
+  let outputText = "";
+  let running = false;
+
+  const MAX_OUTPUT = 12000;
+  const MAX_CODE = 50000;
+
+  const workerSource = `
+    let pyodide = null;
+    let outputLength = 0;
+
+    function sendOutput(text, isError) {
+      const remaining = 12000 - outputLength;
+      if (remaining <= 0) return;
+
+      const part = String(text).slice(0, remaining);
+      outputLength += part.length;
+
+      self.postMessage({
+        type: "output",
+        text: part,
+        isError: !!isError
       });
     }
 
-    pyodide.setStdout({
-      batched: text => sendOutput(text + "\\n", false)
-    });
+    self.onmessage = async function(event) {
+      if (!event.data || event.data.type !== "run") return;
 
-    pyodide.setStderr({
-      batched: text => sendOutput(text + "\\n", true)
-    });
+      outputLength = 0;
 
-    self.postMessage({ type: "ready" });
+      try {
+        if (!pyodide) {
+          self.postMessage({ type: "loading" });
 
-    await pyodide.runPythonAsync(event.data.code);
+          importScripts(
+            "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"
+          );
 
-    self.postMessage({
-      type: "done",
-      hasOutput: outputLength > 0
-    });
-  } catch (error) {
-    self.postMessage({
-      type: "failure",
-      message: String(error)
-    });
-  }
-};
+          pyodide = await loadPyodide({
+            indexURL:
+              "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"
+          });
+        }
 
-`;
+        pyodide.setStdout({
+          batched: text => sendOutput(text + "\\n", false)
+        });
 
-function clearTimer() {
-if (timer !== null) {
-clearTimeout(timer);
-timer = null;
-}
-}
+        pyodide.setStderr({
+          batched: text => sendOutput(text + "\\n", true)
+        });
 
-function updateButtons() {
-startBtn.disabled = running || languageEl.value !== "python";
-stopBtn.disabled = !running;
-}
+        self.postMessage({ type: "ready" });
 
-function terminate(message) {
-clearTimer();
+        await pyodide.runPythonAsync(event.data.code);
 
-if (worker) {
-  worker.terminate();
-  worker = null;
-}
+        self.postMessage({ type: "done" });
+      } catch (error) {
+        self.postMessage({
+          type: "failure",
+          message: String(error)
+        });
+      }
+    };
+  `;
 
-if (workerUrl) {
-  URL.revokeObjectURL(workerUrl);
-  workerUrl = null;
-}
-
-running = false;
-updateButtons();
-
-if (message) output.textContent = message;
-
-}
-
-function appendOutput(text) {
-if (outputText.length >= 12000) return;
-
-const remaining = 12000 - outputText.length;
-outputText += text.slice(0, remaining);
-
-if (outputText.length >= 12000) {
-  outputText += "\\n…вывод ограничен 12 000 символами…";
-}
-
-output.textContent = outputText;
-
-}
-
-function createWorker() {
-workerUrl = URL.createObjectURL(
-new Blob([workerSource], { type: "text/javascript" })
-);
-
-worker = new Worker(workerUrl);
-
-worker.onmessage = event => {
-  const data = event.data || {};
-
-  if (data.type === "loading") {
-    output.textContent = "Загружаем Python-среду…";
-  }
-
-  if (data.type === "ready") {
-    clearTimer();
-
-    timer = setTimeout(() => {
-      terminate(
-        "Лимит выполнения — 5 секунд. Запуск остановлен."
-      );
-    }, 5000);
-
-    output.textContent = "";
-  }
-
-  if (data.type === "output") {
-    appendOutput(
-      (data.isError ? "[stderr] " : "") + data.text
-    );
-  }
-
-  if (data.type === "done") {
-    clearTimer();
-    running = false;
-    updateButtons();
-
-    if (!outputText.trim()) {
-      output.textContent = "Программа завершилась без вывода.";
+  function clearTimer() {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
     }
   }
 
-  if (data.type === "failure") {
+  function updateButtons() {
+    startBtn.disabled =
+      running || languageEl.value !== "python";
+
+    stopBtn.disabled = !running;
+  }
+
+  function cleanup() {
     clearTimer();
-    appendOutput("\\nОшибка:\\n" + data.message);
+
+    if (worker) {
+      worker.terminate();
+      worker = null;
+    }
+
+    if (workerUrl) {
+      URL.revokeObjectURL(workerUrl);
+      workerUrl = null;
+    }
+
     running = false;
     updateButtons();
   }
-};
 
-worker.onerror = event => {
-  terminate(
-    "Не удалось запустить Python: " +
-    (event.message || "ошибка загрузки")
-  );
-};
+  function stopExecution(message) {
+    cleanup();
+    output.textContent = message;
+  }
 
-}
+  function appendOutput(text) {
+    if (outputText.length >= MAX_OUTPUT) return;
 
-startBtn.addEventListener("click", () => {
-if (running) return;
+    const remaining = MAX_OUTPUT - outputText.length;
+    outputText += text.slice(0, remaining);
 
-if (languageEl.value !== "python") {
-  output.textContent = "Выбери язык Python.";
-  return;
-}
+    if (outputText.length >= MAX_OUTPUT) {
+      outputText += "\n…вывод ограничен 12 000 символами…";
+    }
 
-const code = codeEl.value;
+    output.textContent = outputText;
+  }
 
-if (!code.trim()) {
-  output.textContent = "Сначала напиши Python-код.";
-  return;
-}
-
-if (code.length > 50000) {
-  output.textContent = "Максимальный размер кода — 50 000 символов.";
-  return;
-}
-
-outputText = "";
-output.textContent = "Подготовка запуска…";
-running = true;
-updateButtons();
-
-try {
-  if (!worker) createWorker();
-
-  timer = setTimeout(() => {
-    terminate(
-      "Python загружается слишком долго. Проверь соединение."
+  function createWorker() {
+    workerUrl = URL.createObjectURL(
+      new Blob([workerSource], {
+        type: "text/javascript"
+      })
     );
-  }, 45000);
 
-  worker.postMessage({ type: "run", code });
-} catch (error) {
-  terminate("Ошибка запуска: " + error.message);
-}
+    worker = new Worker(workerUrl);
 
-});
+    worker.onmessage = event => {
+      const data = event.data || {};
 
-stopBtn.addEventListener("click", () => {
-terminate("Выполнение остановлено.");
-});
+      if (data.type === "loading") {
+        output.textContent = "Загружаем Python-среду…";
+      }
 
-languageEl.addEventListener("change", updateButtons);
-updateButtons();
+      if (data.type === "ready") {
+        clearTimer();
+
+        outputText = "";
+        output.textContent = "Выполняем код…";
+
+        timer = setTimeout(() => {
+          stopExecution(
+            "Превышен лимит выполнения — 5 секунд."
+          );
+        }, 5000);
+      }
+
+      if (data.type === "output") {
+        appendOutput(
+          (data.isError ? "[stderr] " : "") + data.text
+        );
+      }
+
+      if (data.type === "done") {
+        clearTimer();
+        running = false;
+        updateButtons();
+
+        if (!outputText.trim()) {
+          output.textContent =
+            "Программа завершилась без вывода.";
+        }
+      }
+
+      if (data.type === "failure") {
+        clearTimer();
+        appendOutput(
+          "\nОшибка:\n" + data.message
+        );
+        running = false;
+        updateButtons();
+      }
+    };
+
+    worker.onerror = event => {
+      stopExecution(
+        "Ошибка Python-среды: " +
+        (event.message || "не удалось запустить Worker")
+      );
+    };
+  }
+
+  startBtn.addEventListener("click", () => {
+    if (running) return;
+
+    if (languageEl.value !== "python") {
+      output.textContent = "Выбери язык Python.";
+      return;
+    }
+
+    const code = codeEl.value;
+
+    if (!code.trim()) {
+      output.textContent = "Сначала напиши Python-код.";
+      return;
+    }
+
+    if (code.length > MAX_CODE) {
+      output.textContent =
+        "Максимальный размер кода — 50 000 символов.";
+      return;
+    }
+
+    outputText = "";
+    output.textContent = "Подготавливаем запуск…";
+    running = true;
+    updateButtons();
+
+    try {
+      if (!worker) createWorker();
+
+      timer = setTimeout(() => {
+        stopExecution(
+          "Python загружается слишком долго. Проверь соединение."
+        );
+      }, 45000);
+
+      worker.postMessage({
+        type: "run",
+        code
+      });
+    } catch (error) {
+      stopExecution("Ошибка запуска: " + error.message);
+    }
+  });
+
+  stopBtn.addEventListener("click", () => {
+    stopExecution("Выполнение остановлено.");
+  });
+
+  languageEl.addEventListener("change", updateButtons);
+
+  updateButtons();
+
+  console.log("DevPocket Runner: панель запуска подключена.");
 })();
