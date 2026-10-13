@@ -482,6 +482,7 @@
 
   function showCompletions(cm) {
     const result = getCompletions(cm);
+
     if (!result.list.length) return;
 
     CodeMirror.showHint(cm, () => result, {
@@ -493,15 +494,29 @@
 
   editor.on("inputRead", (cm, change) => {
     if (!change.text || !change.text.length) return;
+
+    // Не показываем подсказки при вводе пробела или переноса строки.
     if (change.text.some(part => /\s/.test(part))) return;
 
     const cursor = cm.getCursor();
     const line = cm.getLine(cursor.line);
     const before = line.slice(0, cursor.ch);
 
-    if (/[A-Za-z_$][\w$.-]{1,}$/.test(before)) {
-      showCompletions(cm);
-    }
+    // Ищем последнее набираемое слово.
+    const match = before.match(/[A-Za-z_$][\w$.-]*$/);
+    if (!match || match[0].length < 2) return;
+
+    showCompletions(cm);
+  });
+
+  // Обновляем подсветку при смене языка.
+  language.addEventListener("change", () => {
+    editor.closeHint?.();
+    editor.setOption(
+      "mode",
+      modes[language.value] || "text/plain"
+    );
+    editor.refresh();
   });
 
   language.addEventListener("change", () => {
